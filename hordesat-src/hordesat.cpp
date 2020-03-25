@@ -193,6 +193,8 @@ int main(int argc, char** argv) {
 		params.printParams();
 
 		solversCount = params.getIntParam("c", 1);
+        solvingDoneLocal = false;
+        finalResult = UNKNOWN;
 
 		for (int i = 0; i < solversCount; i++) {
 			solvers.push_back(new Lingeling());
@@ -342,9 +344,11 @@ int main(int argc, char** argv) {
 		// Cleanup
 		for (int i = 0; i < solversCount; i++) {
 			delete solverThreads[i];
+			delete solvers[i];
 		}
 		free(solverThreads);
 		delete sharingManager;
+		solvers.clear();
 
 		log(0, "Input %s finished.\n", filename.c_str());
 		usleep(1000 * 1000);

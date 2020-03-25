@@ -33,6 +33,9 @@ protected:
 	int outBuffer[COMM_BUFFER_SIZE];
 	int* incommingBuffer;
 
+	int prodInc;
+	int lastInc;
+
 	class Callback : public LearnedClauseCallback {
 	public:
 		AllToAllSharingManager& parent;

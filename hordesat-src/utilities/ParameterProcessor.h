@@ -20,16 +20,17 @@ using namespace std;
 class ParameterProcessor {
 private:
 	map<string, string> params;
-	char* filename;
+	vector<string> filenames;
+	int filenameIdx;
 public:
 	ParameterProcessor() {
-		filename = NULL;
+		filenameIdx = 0;
 	}
 	void init(int argc, char** argv) {
 		for (int i = 1; i < argc; i++) {
 			char* arg = argv[i];
 			if (arg[0] != '-') {
-				filename = arg;
+				filenames.emplace_back(arg);
 				continue;
 			}
 			char* eq = strchr(arg, '=');
@@ -44,8 +45,11 @@ public:
 		}
 	}
 
-	const char* getFilename() {
-		return filename;
+	bool hasNextFilename() {
+		return filenameIdx < filenames.size();
+	}
+	string getNextFilename() {
+		return filenames[filenameIdx++];
 	}
 
 	void printParams() {

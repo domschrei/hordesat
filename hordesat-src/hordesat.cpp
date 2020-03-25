@@ -155,9 +155,9 @@ int main(int argc, char** argv) {
 
 	params.init(argc, argv);
 
-	if (params.getFilename() == NULL || params.isSet("h")) {
+	if (!params.hasNextFilename() || params.isSet("h")) {
 		puts("This is HordeSat ($Revision: DS-LGL $)");
-		puts("USAGE: [mpirun ...] ./hordesat [parameters] input.cnf");
+		puts("USAGE: [mpirun ...] ./hordesat [parameters] input.cnf [input2.cnf ...]");
 		puts("Parameters:");
 		puts("        -d=0...7\t diversification 0=none, 1=sparse, 2=dense, 3=random, 4=native(plingeling), 5=1&4, 6=sparse-random, 7=6&4, default is 1.");
 		puts("        -e=0,1,2\t clause exchange mode 0=none, 1=all-to-all, 2=log-partners, default is 1.");
@@ -171,174 +171,184 @@ int main(int argc, char** argv) {
 		return 0;
 	}
 
-	int mpi_size, mpi_rank;
-	MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-	MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+	while (params.hasNextFilename()) {
+		MPI_Barrier(MPI_COMM_WORLD);
+		resetLog();
 
-	setVerbosityLevel(params.getIntParam("v", 0));
-	if (mpi_rank == 0) {
-		setVerbosityLevel(3);
-	}
+		string filename = params.getNextFilename();
 
-	char hostname[1024];
-	gethostname(hostname, 1024);
-	log(0, "Running HordeSat ($Revision: DS-LGL $) on %s rank %d/%d input %s with parameters: ",
-			hostname, mpi_rank, mpi_size, params.getFilename());
-	params.printParams();
+		int mpi_size, mpi_rank;
+		MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+		MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-	solversCount = params.getIntParam("c", 1);
+		setVerbosityLevel(params.getIntParam("v", 0));
+		if (mpi_rank == 0) {
+			setVerbosityLevel(3);
+		}
 
-	for (int i = 0; i < solversCount; i++) {
-        solvers.push_back(new Lingeling());
-        log(1, "Running Lingeling on core %d of node %d/%d\n", i, mpi_rank, mpi_size);
-	}
+		char hostname[1024];
+		gethostname(hostname, 1024);
+		log(0, "Running HordeSat ($Revision: DS-LGL $) on %s rank %d/%d input %s with parameters: ",
+				hostname, mpi_rank, mpi_size, filename.c_str());
+		params.printParams();
 
-	loadFormulaToSolvers(solvers, params.getFilename());
+		solversCount = params.getIntParam("c", 1);
 
-	int exchangeMode = params.getIntParam("e", 1);
-	if (exchangeMode == 0) {
-		log(1, "Clause sharing disabled.\n");
-	} else if (mpi_size > 1 || solversCount > 1) {
-		switch (exchangeMode) {
+		for (int i = 0; i < solversCount; i++) {
+			solvers.push_back(new Lingeling());
+			log(1, "Running Lingeling on core %d of node %d/%d\n", i, mpi_rank, mpi_size);
+		}
+
+		loadFormulaToSolvers(solvers, filename.c_str());
+
+		int exchangeMode = params.getIntParam("e", 1);
+		if (exchangeMode == 0) {
+			log(1, "Clause sharing disabled.\n");
+		} else if (mpi_size > 1 || solversCount > 1) {
+			switch (exchangeMode) {
+			case 1:
+				sharingManager = new AllToAllSharingManager(mpi_size, mpi_rank, solvers, params);
+				log(1, "Initialized all-to-all clause sharing.\n");
+				break;
+			case 2:
+				sharingManager = new LogSharingManager(mpi_size, mpi_rank, solvers, params);
+				log(1, "Initialized log-partners clause sharing.\n");
+				break;
+			}
+		}
+
+		int diversification = params.getIntParam("d", 1);
+		switch (diversification) {
 		case 1:
-			sharingManager = new AllToAllSharingManager(mpi_size, mpi_rank, solvers, params);
-			log(1, "Initialized all-to-all clause sharing.\n");
+			sparseDiversification(mpi_size, mpi_rank);
+			log(1, "doing sparse diversification\n");
 			break;
 		case 2:
-			sharingManager = new LogSharingManager(mpi_size, mpi_rank, solvers, params);
-			log(1, "Initialized log-partners clause sharing.\n");
+			binValueDiversification(mpi_size, mpi_rank);
+			log(1, "doing binary value based diversification\n");
+			break;
+		case 3:
+			randomDiversification(2015);
+			log(1, "doing random diversification\n");
+			break;
+		case 4:
+			nativeDiversification(mpi_rank, mpi_size);
+			log(1, "doing native diversification (plingeling)\n");
+			break;
+		case 5:
+			sparseDiversification(mpi_size, mpi_rank);
+			nativeDiversification(mpi_rank, mpi_size);
+			log(1, "doing sparse + native diversification (plingeling)\n");
+			break;
+		case 6:
+			sparseRandomDiversification(mpi_rank, mpi_size);
+			log(1, "doing sparse random diversification\n");
+			break;
+		case 7:
+			sparseRandomDiversification(mpi_rank, mpi_size);
+			nativeDiversification(mpi_rank, mpi_size);
+			log(1, "doing random sparse + native diversification (plingeling)\n");
+			break;
+		case 0:
+			log(1, "no diversification\n");
 			break;
 		}
-	}
 
-	int diversification = params.getIntParam("d", 1);
-	switch (diversification) {
-	case 1:
-		sparseDiversification(mpi_size, mpi_rank);
-		log(1, "doing sparse diversification\n");
-		break;
-	case 2:
-		binValueDiversification(mpi_size, mpi_rank);
-		log(1, "doing binary value based diversification\n");
-		break;
-	case 3:
-		randomDiversification(2015);
-		log(1, "doing random diversification\n");
-		break;
-	case 4:
-		nativeDiversification(mpi_rank, mpi_size);
-		log(1, "doing native diversification (plingeling)\n");
-		break;
-	case 5:
-		sparseDiversification(mpi_size, mpi_rank);
-		nativeDiversification(mpi_rank, mpi_size);
-		log(1, "doing sparse + native diversification (plingeling)\n");
-		break;
-	case 6:
-		sparseRandomDiversification(mpi_rank, mpi_size);
-		log(1, "doing sparse random diversification\n");
-		break;
-	case 7:
-		sparseRandomDiversification(mpi_rank, mpi_size);
-		nativeDiversification(mpi_rank, mpi_size);
-		log(1, "doing random sparse + native diversification (plingeling)\n");
-		break;
-	case 0:
-		log(1, "no diversification\n");
-		break;
-	}
+		initializeEndingDetection(mpi_size);
 
-	initializeEndingDetection(mpi_size);
+		Thread** solverThreads = (Thread**) malloc (solversCount*sizeof(Thread*));
+		for (int i = 0; i < solversCount; i++) {
+			solverThreads[i] = new Thread(solverRunningThread, solvers[i]);
+		}
 
-	Thread** solverThreads = (Thread**) malloc (solversCount*sizeof(Thread*));
-	for (int i = 0; i < solversCount; i++) {
-		solverThreads[i] = new Thread(solverRunningThread, solvers[i]);
-	}
+		double startSolving = getTime();
+		log(1, "Node %d started its solvers, initialization took %.2f seconds.\n", mpi_rank, startSolving);
 
-	double startSolving = getTime();
-	log(1, "Node %d started its solvers, initialization took %.2f seconds.\n", mpi_rank, startSolving);
+		int maxSeconds = params.getIntParam("t", 0);
+		int maxRounds = params.getIntParam("r", -1);
+		size_t sleepInt = 1000 * params.getIntParam("i", 1000);
+		int round = 1;
 
-	int maxSeconds = params.getIntParam("t", 0);
-	int maxRounds = params.getIntParam("r", -1);
-	size_t sleepInt = 1000 * params.getIntParam("i", 1000);
-	int round = 1;
+		while (!getGlobalEnding(mpi_size, mpi_rank)) {
+			usleep(sleepInt);
+			double timeNow = getTime();
+			log(2, "Node %d entering round %d (%.2f seconds solving, %.2f rounds/sec)\n", mpi_rank, round,
+				timeNow - startSolving, round/(timeNow - startSolving));
+			if (sharingManager != NULL) {
+				sharingManager->doSharing();
+			}
+			if (round == maxRounds || (maxSeconds != 0 && timeNow > maxSeconds)) {
+				solvingDoneLocal = true;
+			}
+			fflush(stdout);
+			round++;
+		}
+		double searchTime = getTime() - startSolving;
+		log(0, "node %d finished, joining solver threads\n", mpi_rank);
+		for (int i = 0; i < solversCount; i++) {
+			solverThreads[i]->join();
+		}
 
-	while (!getGlobalEnding(mpi_size, mpi_rank)) {
-		usleep(sleepInt);
-		double timeNow = getTime();
-		log(2, "Node %d entering round %d (%.2f seconds solving, %.2f rounds/sec)\n", mpi_rank, round,
-			timeNow - startSolving, round/(timeNow - startSolving));
+		// Statistics gathering
+		// Local statistics
+		SolvingStatistics locSolveStats;
+		for (int i = 0; i < solversCount; i++) {
+			SolvingStatistics st = solvers[i]->getStatistics();
+			log(1, "thread-stats node:%d/%d thread:%d/%d props:%lu decs:%lu confs:%lu mem:%0.2f\n",
+					mpi_rank, mpi_size, i, solversCount, st.propagations, st.decisions, st.conflicts, st.memPeak);
+			locSolveStats.conflicts += st.conflicts;
+			locSolveStats.decisions += st.decisions;
+			locSolveStats.memPeak += st.memPeak;
+			locSolveStats.propagations += st.propagations;
+			locSolveStats.restarts += st.restarts;
+		}
+		SharingStatistics locShareStats;
 		if (sharingManager != NULL) {
-			sharingManager->doSharing();
+			locShareStats = sharingManager->getStatistics();
 		}
-		if (round == maxRounds || (maxSeconds != 0 && timeNow > maxSeconds)) {
-			solvingDoneLocal = true;
+		log(1, "node-stats node:%d/%d solved:%d res:%d props:%lu decs:%lu confs:%lu mem:%0.2f shared:%lu filtered:%lu\n",
+				mpi_rank, mpi_size, finalResult != 0, finalResult, locSolveStats.propagations, locSolveStats.decisions,
+				locSolveStats.conflicts, locSolveStats.memPeak, locShareStats.sharedClauses, locShareStats.filteredClauses);
+		// Global statistics
+		SatResult globalResult;
+		MPI_Reduce(&finalResult, &globalResult, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+		SolvingStatistics globSolveStats;
+		MPI_Reduce(&locSolveStats.propagations, &globSolveStats.propagations, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locSolveStats.decisions, &globSolveStats.decisions, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locSolveStats.conflicts, &globSolveStats.conflicts, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locSolveStats.memPeak, &globSolveStats.memPeak, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+		SharingStatistics globShareStats;
+		MPI_Reduce(&locShareStats.sharedClauses, &globShareStats.sharedClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locShareStats.importedClauses, &globShareStats.importedClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locShareStats.filteredClauses, &globShareStats.filteredClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(&locShareStats.dropped, &globShareStats.dropped, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+
+		if (mpi_rank == 0) {
+			log(0, "glob-stats nodes:%d threads:%d solved:%d res:%d rounds:%d time:%.2f mem:%0.2f MB props:%.2f decs:%.2f confs:%.2f "
+				"shared:%.2f imported:%.2f filtered:%.2f dropped:%.2f\n",
+				mpi_size, solversCount, globalResult != 0, globalResult, round,
+				searchTime, globSolveStats.memPeak,
+				globSolveStats.propagations/searchTime, globSolveStats.decisions/searchTime, globSolveStats.conflicts/searchTime,
+				globShareStats.sharedClauses/searchTime, globShareStats.importedClauses/searchTime, globShareStats.filteredClauses/searchTime, globShareStats.dropped/searchTime);
+			// Logging Conventions:
+			log(0, "c CPU %.2f\n", searchTime);
+			log(0, "c conflicts %lu (%.2f)\n", globSolveStats.conflicts, globSolveStats.conflicts/searchTime);
+			if (globalResult > 0) {
+				if (globalResult == 10) log(0, "s SATISFIABLE\n");
+				if (globalResult == 20) log(0, "s UNSATISFIABLE\n");
+			} 
 		}
-		fflush(stdout);
-		round++;
-	}
-	double searchTime = getTime() - startSolving;
-	log(0, "node %d finished, joining solver threads\n", mpi_rank);
-	for (int i = 0; i < solversCount; i++) {
-		solverThreads[i]->join();
-	}
 
-	// Statistics gathering
-	// Local statistics
-	SolvingStatistics locSolveStats;
-	for (int i = 0; i < solversCount; i++) {
-		SolvingStatistics st = solvers[i]->getStatistics();
-		log(1, "thread-stats node:%d/%d thread:%d/%d props:%lu decs:%lu confs:%lu mem:%0.2f\n",
-				mpi_rank, mpi_size, i, solversCount, st.propagations, st.decisions, st.conflicts, st.memPeak);
-		locSolveStats.conflicts += st.conflicts;
-		locSolveStats.decisions += st.decisions;
-		locSolveStats.memPeak += st.memPeak;
-		locSolveStats.propagations += st.propagations;
-		locSolveStats.restarts += st.restarts;
-	}
-	SharingStatistics locShareStats;
-	if (sharingManager != NULL) {
-		locShareStats = sharingManager->getStatistics();
-	}
-	log(1, "node-stats node:%d/%d solved:%d res:%d props:%lu decs:%lu confs:%lu mem:%0.2f shared:%lu filtered:%lu\n",
-			mpi_rank, mpi_size, finalResult != 0, finalResult, locSolveStats.propagations, locSolveStats.decisions,
-			locSolveStats.conflicts, locSolveStats.memPeak, locShareStats.sharedClauses, locShareStats.filteredClauses);
-	// Global statistics
-	SatResult globalResult;
-	MPI_Reduce(&finalResult, &globalResult, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
-	SolvingStatistics globSolveStats;
-	MPI_Reduce(&locSolveStats.propagations, &globSolveStats.propagations, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locSolveStats.decisions, &globSolveStats.decisions, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locSolveStats.conflicts, &globSolveStats.conflicts, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locSolveStats.memPeak, &globSolveStats.memPeak, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-	SharingStatistics globShareStats;
-	MPI_Reduce(&locShareStats.sharedClauses, &globShareStats.sharedClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locShareStats.importedClauses, &globShareStats.importedClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locShareStats.filteredClauses, &globShareStats.filteredClauses, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce(&locShareStats.dropped, &globShareStats.dropped, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+		// Cleanup
+		for (int i = 0; i < solversCount; i++) {
+			delete solverThreads[i];
+		}
+		free(solverThreads);
+		delete sharingManager;
 
-	if (mpi_rank == 0) {
-		log(0, "glob-stats nodes:%d threads:%d solved:%d res:%d rounds:%d time:%.2f mem:%0.2f MB props:%.2f decs:%.2f confs:%.2f "
-			"shared:%.2f imported:%.2f filtered:%.2f dropped:%.2f\n",
-			mpi_size, solversCount, globalResult != 0, globalResult, round,
-			searchTime, globSolveStats.memPeak,
-			globSolveStats.propagations/searchTime, globSolveStats.decisions/searchTime, globSolveStats.conflicts/searchTime,
-			globShareStats.sharedClauses/searchTime, globShareStats.importedClauses/searchTime, globShareStats.filteredClauses/searchTime, globShareStats.dropped/searchTime);
-		// Logging Conventions:
-		log(0, "c CPU %.2f\n", searchTime);
-		log(0, "c conflicts %lu (%.2f)\n", globSolveStats.conflicts, globSolveStats.conflicts/searchTime);
-		if (globalResult > 0) {
-			if (globalResult == 10) log(0, "s SATISFIABLE\n");
-			if (globalResult == 20) log(0, "s UNSATISFIABLE\n");
-		} 
+		log(0, "Input %s finished.\n", filename.c_str());
+		usleep(1000 * 1000);
 	}
-
-	// Cleanup
-	for (int i = 0; i < solversCount; i++) {
-		delete solverThreads[i];
-	}
-	free(solverThreads);
-	delete sharingManager;
 
 	MPI_Finalize();
 	return 0;

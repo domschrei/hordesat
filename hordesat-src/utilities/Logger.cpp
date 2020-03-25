@@ -14,6 +14,11 @@
 static int verbosityLevelSetting = 0;
 static double start = getAbsoluteTime();
 
+void resetLog() {
+	verbosityLevelSetting = 0;
+	start = getAbsoluteTime();
+}
+
 double getAbsoluteTime() {
 	timeval time;
 	gettimeofday(&time, NULL);

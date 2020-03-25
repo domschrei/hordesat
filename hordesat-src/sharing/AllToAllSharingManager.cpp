@@ -21,11 +21,11 @@ AllToAllSharingManager::AllToAllSharingManager(int mpi_size, int mpi_rank,
 			solverFilters.push_back(new ClauseFilter());
 		}
 	}
+	prodInc = 1;
+	lastInc = 0;
 }
 
 void AllToAllSharingManager::doSharing() {
-	static int prodInc = 1;
-	static int lastInc = 0;
 	if (!params.isSet("fd")) {
 		nodeFilter.clear();
 	}

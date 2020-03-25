@@ -9,6 +9,7 @@
 #ifndef LOGGER_H_
 #define LOGGER_H_
 
+void resetLog();
 double getTime();
 double getAbsoluteTime();
 void setVerbosityLevel(int level);

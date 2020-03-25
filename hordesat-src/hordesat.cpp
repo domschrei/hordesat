@@ -172,10 +172,12 @@ int main(int argc, char** argv) {
 	}
 
 	while (params.hasNextFilename()) {
-		MPI_Barrier(MPI_COMM_WORLD);
-		resetLog();
 
 		string filename = params.getNextFilename();
+		if (filename.empty() || filename == " ") continue;
+
+		MPI_Barrier(MPI_COMM_WORLD);
+		resetLog();
 
 		int mpi_size, mpi_rank;
 		MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);

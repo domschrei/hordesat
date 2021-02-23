@@ -13,7 +13,7 @@ LIBS =		-lz -lpthread -L$(LGLBIN) -llgl -L$(YALBIN) -lyals
 
 TARGET =	hordesat
 
-CXX = 		mpic++
+CXX = 		mpicxx
 
 $(TARGET):	$(OBJS)
 		$(CXX) -o $(TARGET) $(OBJS) $(LIBS)

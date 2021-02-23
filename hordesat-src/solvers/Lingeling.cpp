@@ -10,8 +10,23 @@
 #include <ctype.h>
 #include "../utilities/DebugUtils.h"
 
+#include <chrono>
+using namespace std::chrono;
+
 extern "C" {
 	#include "lglib.h"
+}
+
+high_resolution_clock::time_point lglSolverStartTime;
+
+void Lingeling::initTime() {
+	lglSolverStartTime = high_resolution_clock::now();
+}
+
+double getSolverTime() {
+    high_resolution_clock::time_point nowTime = high_resolution_clock::now();
+    duration<double, std::milli> time_span = nowTime - lglSolverStartTime;    
+	return time_span.count() / 1000;
 }
 
 int termCallback(void* solverPtr) {
@@ -106,6 +121,8 @@ Lingeling::Lingeling() {
 
 	stopSolver = 0;
 	callback = NULL;
+
+	lglsetime(solver, getSolverTime);
 	lglseterm(solver, termCallback, this);
 	glueLimit = 2;
 
@@ -246,28 +263,46 @@ SolvingStatistics Lingeling::getStatistics() {
 void Lingeling::diversify(int rank, int size) {
 	// This method is copied from Plingeling
 	lglsetopt(solver, "seed", rank);
-	lglsetopt(solver, "flipping", 0);
-    switch (rank % 16) {
-		case 0: default: break;
-		case 1: lglsetopt (solver, "plain", 1); break;
-		case 2: lglsetopt (solver, "agilelim", 100); break;
-		case 3: lglsetopt (solver, "block", 0), lglsetopt (solver, "cce", 0); break;
-		case 4: lglsetopt (solver, "bias", -1); break;
-		case 5: lglsetopt (solver, "acts", 0); break;
-		case 6: lglsetopt (solver, "phase", 1); break;
-		case 7: lglsetopt (solver, "acts", 1); break;
-		case 8: lglsetopt (solver, "bias", 1); break;
-		case 9:
-			lglsetopt (solver, "wait", 0);
-			lglsetopt (solver, "blkrtc", 1);
-			lglsetopt (solver, "elmrtc", 1);
+	lglsetopt(solver, "classify", 0);
+    switch (rank % 14) {
+		// Default solver
+		case 0: break;
+
+		// Alternative default solver
+		case 1: 
+			lglsetopt (solver, "plain", 1);
+			lglsetopt (solver, "decompose", 1); // NEW 
 			break;
-		case 10: lglsetopt (solver, "phase", -1); break;
-		case 11: lglsetopt (solver, "prbsimplertc", 1); break;
-		case 12: lglsetopt (solver, "gluescale", 1); break;
-		case 13: lglsetopt (solver, "gluescale", 3); break;
-		case 14: lglsetopt (solver, "move", 1); break;
-		case 15: lglsetopt(solver, "flipping", 1); break;
+
+		// NEW
+		case 2: lglsetopt (solver, "restartint", 1000); break;
+		case 3: lglsetopt (solver, "elmresched", 7); break;
+		
+		// NEW: local search solver
+		case 4:
+			lglsetopt (solver, "plain", rank % (2*14) >= 14);
+			lglsetopt (solver, "locs", -1);
+			lglsetopt (solver, "locsrtc", 1);
+			lglsetopt (solver, "locswait", 0);
+			lglsetopt (solver, "locsclim", (1<<24));
+			break;
+
+		case 5: lglsetopt (solver, "scincincmin", 250); break;
+		case 6: 
+			lglsetopt (solver, "block", 0); 
+			lglsetopt (solver, "cce", 0); 
+			break;
+		case 7: lglsetopt (solver, "scincinc", 50); break;
+		case 8: lglsetopt (solver, "phase", -1); break;
+		case 9: lglsetopt (solver, "phase", 1); break;
+		case 10: lglsetopt (solver, "sweeprtc", 1); break;
+		case 11: lglsetopt (solver, "restartint", 100); break;
+		case 12:
+			lglsetopt (solver, "reduceinit", 10000);
+			lglsetopt (solver, "reducefixed", 1);
+			break;
+		case 13: lglsetopt (solver, "restartint", 4); break;
+		default: break;
 	}
 }
 

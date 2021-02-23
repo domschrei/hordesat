@@ -17,6 +17,9 @@ struct LGL;
 
 class Lingeling: public PortfolioSolverInterface {
 
+public:
+	static void initTime();
+
 private:
 	LGL* solver;
 	int stopSolver;

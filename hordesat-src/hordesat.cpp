@@ -198,6 +198,8 @@ int main(int argc, char** argv) {
         solvingDoneLocal = false;
         finalResult = UNKNOWN;
 
+		Lingeling::initTime();
+
 		for (int i = 0; i < solversCount; i++) {
 			solvers.push_back(new Lingeling());
 			log(1, "Running Lingeling on core %d of node %d/%d\n", i, mpi_rank, mpi_size);
@@ -288,9 +290,12 @@ int main(int argc, char** argv) {
 			round++;
 		}
 		double searchTime = getTime() - startSolving;
-		log(0, "node %d finished, joining solver threads\n", mpi_rank);
-		for (int i = 0; i < solversCount; i++) {
-			solverThreads[i]->join();
+		
+		SatResult globalResult;
+		MPI_Reduce(&finalResult, &globalResult, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+		if (mpi_rank == 0 && globalResult > 0) {
+			if (globalResult == 10) log(0, "s SATISFIABLE\n");
+			if (globalResult == 20) log(0, "s UNSATISFIABLE\n");
 		}
 
 		// Statistics gathering
@@ -314,8 +319,6 @@ int main(int argc, char** argv) {
 				mpi_rank, mpi_size, finalResult != 0, finalResult, locSolveStats.propagations, locSolveStats.decisions,
 				locSolveStats.conflicts, locSolveStats.memPeak, locShareStats.sharedClauses, locShareStats.filteredClauses);
 		// Global statistics
-		SatResult globalResult;
-		MPI_Reduce(&finalResult, &globalResult, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 		SolvingStatistics globSolveStats;
 		MPI_Reduce(&locSolveStats.propagations, &globSolveStats.propagations, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 		MPI_Reduce(&locSolveStats.decisions, &globSolveStats.decisions, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -337,10 +340,17 @@ int main(int argc, char** argv) {
 			// Logging Conventions:
 			log(0, "c CPU %.2f\n", searchTime);
 			log(0, "c conflicts %lu (%.2f)\n", globSolveStats.conflicts, globSolveStats.conflicts/searchTime);
-			if (globalResult > 0) {
-				if (globalResult == 10) log(0, "s SATISFIABLE\n");
-				if (globalResult == 20) log(0, "s UNSATISFIABLE\n");
-			} 
+		}
+
+		if (!params.hasNextFilename()) {
+			// Shut down directly without waiting for solvers
+			MPI_Finalize();
+			exit(0);
+		}
+
+		log(0, "node %d finished, joining solver threads\n", mpi_rank);
+		for (int i = 0; i < solversCount; i++) {
+			solverThreads[i]->join();
 		}
 
 		// Cleanup

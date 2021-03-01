@@ -263,8 +263,36 @@ SolvingStatistics Lingeling::getStatistics() {
 void Lingeling::diversify(int rank, int size) {
 	// This method is copied from Plingeling
 	lglsetopt(solver, "seed", rank);
+#ifdef OLD_LINGELING
+	printf("Use old Lingeling\n");
+	lglsetopt(solver, "flipping", 0);
+	switch (rank % 16) {
+		case 0: break;
+		case 1: lglsetopt (solver, "plain", 1); break;
+		case 2: lglsetopt (solver, "agilelim", 100); break;
+		case 3: lglsetopt (solver, "block", 0), lglsetopt (solver, "cce", 0); break;
+		case 4: lglsetopt (solver, "bias", -1); break;
+		case 5: lglsetopt (solver, "acts", 0); break;
+		case 6: lglsetopt (solver, "phase", 1); break;
+		case 7: lglsetopt (solver, "acts", 1); break;
+		case 8: lglsetopt (solver, "bias", 1); break;
+		case 9:
+			lglsetopt (solver, "wait", 0);
+			lglsetopt (solver, "blkrtc", 1);
+			lglsetopt (solver, "elmrtc", 1);
+			break;
+		case 10: lglsetopt (solver, "phase", -1); break;
+		case 11: lglsetopt (solver, "prbsimplertc", 1); break;
+		case 12: lglsetopt (solver, "gluescale", 1); break;
+		case 13: lglsetopt (solver, "gluescale", 3); break;
+		case 14: lglsetopt (solver, "move", 1); break;
+		case 15: lglsetopt(solver, "flipping", 1); break;
+		default: break;
+	}
+#else
+	printf("Use new Lingeling + YalSAT\n");
 	lglsetopt(solver, "classify", 0);
-    switch (rank % 14) {
+	switch (rank % 14) {
 		// Default solver
 		case 0: break;
 
@@ -304,6 +332,7 @@ void Lingeling::diversify(int rank, int size) {
 		case 13: lglsetopt (solver, "restartint", 4); break;
 		default: break;
 	}
+#endif
 }
 
 
